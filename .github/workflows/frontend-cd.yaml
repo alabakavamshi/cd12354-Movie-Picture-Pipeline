@@ -11,7 +11,7 @@ env:
   AWS_REGION: ap-southeast-2
   ECR_REPOSITORY: frontend
   CLUSTER_NAME: cluster
- REACT_APP_MOVIE_API_URL: http://a235a5545615c405ea62ad6a70e7e3bb-1122863356.ap-southeast-2.elb.amazonaws.com
+  REACT_APP_MOVIE_API_URL: http://a235a5545615c405ea62ad6a70e7e3bb-1122863356.ap-southeast-2.elb.amazonaws.com
 
 jobs:
   lint:
