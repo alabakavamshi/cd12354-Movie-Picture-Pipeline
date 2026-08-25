@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  AWS_REGION: us-east-1
+  AWS_REGION: ap-southeast-2
   ECR_REPOSITORY: frontend
   CLUSTER_NAME: cluster
   REACT_APP_MOVIE_API_URL: http://backend-service:5000
