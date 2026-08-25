@@ -9,27 +9,29 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: mp-frontend
+  ECR_REPOSITORY: frontend
   CLUSTER_NAME: cluster
   REACT_APP_MOVIE_API_URL: http://backend-service:5000
 
 jobs:
   lint:
     runs-on: ubuntu-latest
+
     defaults:
       run:
         working-directory: ./starter/frontend
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '18'
 
       - name: Cache dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ./starter/frontend/node_modules
           key: ${{ runner.os }}-node-${{ hashFiles('./starter/frontend/package-lock.json') }}
@@ -44,20 +46,22 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+
     defaults:
       run:
         working-directory: ./starter/frontend
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '18'
 
       - name: Cache dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ./starter/frontend/node_modules
           key: ${{ runner.os }}-node-${{ hashFiles('./starter/frontend/package-lock.json') }}
@@ -73,15 +77,17 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     needs: [lint, test]
+
     defaults:
       run:
         working-directory: ./starter/frontend
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -89,46 +95,66 @@ jobs:
 
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, tag, and push image to Amazon ECR
+      - name: Build and push Docker image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
           REACT_APP_MOVIE_API_URL: ${{ env.REACT_APP_MOVIE_API_URL }}
         run: |
-          docker build --build-arg=REACT_APP_MOVIE_API_URL=$REACT_APP_MOVIE_API_URL -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker build \
+            --build-arg REACT_APP_MOVIE_API_URL=$REACT_APP_MOVIE_API_URL \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            .
+
+          docker push \
+            $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
   deploy:
     runs-on: ubuntu-latest
     needs: build-and-push
+
     defaults:
       run:
         working-directory: ./starter/frontend/k8s
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Update kubeconfig
-        run: aws eks update-kubeconfig --name ${{ env.CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+        run: |
+          aws eks update-kubeconfig \
+            --name $CLUSTER_NAME \
+            --region $AWS_REGION
 
-      - name: Setup kustomize
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Setup Kustomize
         uses: imranismail/setup-kustomize@v1
         with:
           kustomize-version: "4.5.4"
 
+      - name: Get ECR registry
+        id: ecr
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "registry=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com" >> "$GITHUB_OUTPUT"
+
       - name: Update image tag and deploy
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
           kustomize edit set image frontend=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           kustomize build | kubectl apply -f -
+          kubectl rollout status deployment/frontend --timeout=5m
