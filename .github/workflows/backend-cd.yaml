@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'starter/backend/**'
+      - '.github/workflows/backend-cd.yaml'
   workflow_dispatch:
 
 env:
@@ -58,7 +59,7 @@ jobs:
         run: pip install pipenv
 
       - name: Install dependencies
-        run: pipenv install
+        run: pipenv install --dev
 
       - name: Run tests
         run: pipenv run test
@@ -82,13 +83,21 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Check AWS identity
+        run: |
+          aws sts get-caller-identity
+
       - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+        run: |
+          aws ecr get-login-password --region "$AWS_REGION" | \
+            docker login \
+              --username AWS \
+              --password-stdin \
+              "$(aws sts get-caller-identity --query Account --output text).dkr.ecr.$AWS_REGION.amazonaws.com"
 
       - name: Build and push Docker image
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REGISTRY: 237686062832.dkr.ecr.ap-southeast-2.amazonaws.com
           IMAGE_TAG: ${{ github.sha }}
         run: |
           docker build \
@@ -120,8 +129,8 @@ jobs:
       - name: Update kubeconfig
         run: |
           aws eks update-kubeconfig \
-            --name $CLUSTER_NAME \
-            --region $AWS_REGION
+            --name "$CLUSTER_NAME" \
+            --region "$AWS_REGION"
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
